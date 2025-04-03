@@ -1,0 +1,19 @@
+# ビルド生成物
+.next
+out
+
+# Firebase秘密鍵とか環境変数
+.env.local
+.env*
+*.json
+
+# 依存ライブラリ（超巨大）
+node_modules
+
+# macOSの隠しファイル
+.DS_Store
+
+# ログ
+*.log
+logs
+
