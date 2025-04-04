@@ -1,62 +1,45 @@
+// pages/mypage.tsx
 import { useAuthState } from "react-firebase-hooks/auth";
 import { useState, useEffect } from "react";
 import { auth, db } from "@/lib/firebase";
 import { getDoc, doc, deleteDoc } from "firebase/firestore";
+import { signOut } from "firebase/auth";
 
 export default function MyPage() {
   const [user, loading, error] = useAuthState(auth);
   const [spotifyLinked, setSpotifyLinked] = useState(false);
   const [appleLinked, setAppleLinked] = useState(false);
   const [copied, setCopied] = useState(false);
+  // カスタムユーザー名を入力するための state
+  const [customName, setCustomName] = useState("");
+  const [nameSet, setNameSet] = useState(false);
 
   useEffect(() => {
-    console.log("🔥 useEffect 発火", user);
-
+    if (!user) return;
     const checkLinks = async () => {
-      console.log("📞 checkLinks 実行");
-
-      if (!user) {
-        console.log("⚠️ user が存在しません");
-        return;
-      }
-
       try {
         const spotifyRef = doc(db, "users", user.uid, "spotifyTokens", "token");
         const appleRef = doc(db, "users", user.uid, "appleMusic", "token");
 
-        console.log("📡 Firestore 参照作成完了");
-
         const spotifyDoc = await getDoc(spotifyRef);
         const appleDoc = await getDoc(appleRef);
 
-        console.log("🧾 Spotify doc.exists():", spotifyDoc.exists());
-        console.log("🧾 Apple doc.exists():", appleDoc.exists());
-
-        // Spotify連携状態の判定
         if (spotifyDoc.exists()) {
           const data = spotifyDoc.data();
-          console.log("✅ Spotifyドキュメント取得:", data);
-          console.log("🕒 expires_at:", data?.expires_at, "現在:", Date.now());
-          console.log("🎫 access_token:", data?.access_token);
-
           if (data?.access_token && data?.expires_at > Date.now()) {
-            console.log("✅ Spotify連携状態: 有効");
             setSpotifyLinked(true);
           } else {
-            console.log("⚠️ Spotifyトークン無効");
             setSpotifyLinked(false);
           }
         } else {
-          console.log("❌ Spotifyドキュメントなし");
           setSpotifyLinked(false);
         }
 
         setAppleLinked(appleDoc.exists());
       } catch (error) {
-        console.error("❌ Firestoreデータ取得エラー:", error);
+        console.error("Firestoreデータ取得エラー:", error);
       }
     };
-
     checkLinks();
   }, [user]);
 
@@ -75,19 +58,49 @@ export default function MyPage() {
   };
 
   const handleCopy = () => {
-    const url = `https://hearme.vercel.app/u/${user.uid}`;
-    navigator.clipboard.writeText(url);
+    // customName が設定されていれば URL に含める
+    const shareUrl = nameSet
+      ? `https://hearme.vercel.app/u/${user.uid}_${customName}`
+      : `https://hearme.vercel.app/u/${user.uid}`;
+    navigator.clipboard.writeText(shareUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      window.location.href = "/";
+    } catch (error) {
+      console.error("ログアウト失敗:", error);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-black text-white p-6 flex flex-col items-center justify-center">
-      <h1 className="text-4xl font-bold mb-6 bg-gradient-to-r from-pink-500 via-red-500 to-yellow-500 bg-clip-text text-transparent">
-        ようこそ、{user.displayName}さん！
+      <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-pink-500 via-red-500 to-yellow-500 bg-clip-text text-transparent">
+        ようこそ、{user.displayName || "User"}さん！
       </h1>
-
       <p className="mb-4 text-gray-400">{user.email}</p>
+
+      {/* ユーザーがカスタム名を入力できる欄（未設定の場合のみ表示） */}
+      {!nameSet && (
+        <div className="mb-6">
+          <input
+            type="text"
+            placeholder="表示したいユーザー名を入力"
+            value={customName}
+            onChange={(e) => setCustomName(e.target.value)}
+            className="p-2 rounded-md text-black"
+          />
+          <button
+            onClick={() => setNameSet(true)}
+            className="ml-2 px-4 py-2 bg-green-600 rounded-md hover:bg-green-700"
+          >
+            決定
+          </button>
+        </div>
+      )}
 
       <div className="space-y-6 w-full max-w-md">
         {spotifyLinked ? (
@@ -101,10 +114,11 @@ export default function MyPage() {
                 登録解除
               </button>
             </div>
-
             <div className="bg-white text-black px-4 py-2 rounded-lg text-sm flex items-center justify-between">
               <span className="truncate">
-                {`https://hearme.vercel.app/u/${user.uid}`}
+                {nameSet
+                  ? `https://hearme.vercel.app/u/${user.uid}_${customName}`
+                  : `https://hearme.vercel.app/u/${user.uid}`}
               </span>
               <button
                 onClick={handleCopy}
@@ -116,7 +130,9 @@ export default function MyPage() {
           </div>
         ) : (
           <button
-            onClick={() => (window.location.href = "/auth/spotify")}
+            onClick={() =>
+              (window.location.href = `/api/auth/login?uid=${user.uid}`)
+            }
             className="w-full py-3 bg-gradient-to-r from-green-400 to-green-600 rounded-full text-white text-lg font-semibold shadow-md hover:shadow-lg active:scale-95 transition"
           >
             Spotifyで連携する
@@ -135,12 +151,22 @@ export default function MyPage() {
           </div>
         ) : (
           <button
-            onClick={() => (window.location.href = "/auth/apple")}
-            className="w-full py-3 bg-gradient-to-r from-pink-400 to-pink-600 rounded-full text-white text-lg font-semibold shadow-md hover:shadow-lg active:scale-95 transition"
+            disabled
+            className="w-full py-3 flex items-center justify-center gap-2 rounded-full text-lg font-semibold bg-gradient-to-r from-pink-400 to-pink-600 text-white shadow-lg opacity-50 cursor-not-allowed"
           >
-            Apple Musicで連携する
+            Apple Music（準備中）
           </button>
         )}
+      </div>
+
+      {/* ログアウトボタン */}
+      <div className="mt-6">
+        <button
+          onClick={handleLogout}
+          className="underline text-sm text-gray-400 hover:text-white"
+        >
+          ログアウト
+        </button>
       </div>
     </div>
   );

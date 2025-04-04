@@ -9,54 +9,70 @@ type Track = {
   image: string;
 };
 
-// ✅ 表示用コンポーネント
-export default function UserNowPlaying({ track }: { track: Track | null }) {
-  if (!track) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-black text-white text-center px-4">
-        <p className="text-lg">再生履歴が取得できませんでした。</p>
-      </div>
-    );
-  }
+type NowPlayingProps = {
+  track: Track | null;
+  displayName: string;
+};
 
+export default function UserNowPlaying({ track, displayName }: NowPlayingProps) {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-black text-white px-4 py-12">
-      <Image
-        src={track.image}
-        alt={track.name}
-        width={300}
-        height={300}
-        className="rounded-xl shadow-xl mb-6"
-      />
-      <h1 className="text-2xl font-bold mb-2">{track.name}</h1>
-      <p className="text-lg text-gray-400">{track.artist}</p>
+    <div className="relative min-h-screen bg-black text-white flex flex-col items-center justify-center px-4 py-12">
+      {/* ヘッダー部分：HearMeロゴとユーザー名の「is now playing」 */}
+      <header className="absolute top-0 left-0 w-full p-4 flex flex-col items-center">
+        <h1 className="text-3xl font-extrabold bg-gradient-to-r from-pink-500 via-red-500 to-yellow-500 bg-clip-text text-transparent">
+          HearMe
+        </h1>
+        <p className="mt-2 text-lg">{displayName} is now playing</p>
+      </header>
+
+      {track ? (
+        <>
+          <Image
+            src={track.image}
+            alt={track.name}
+            width={300}
+            height={300}
+            className="rounded-xl shadow-2xl mb-6"
+          />
+          <h2 className="text-2xl font-bold mb-2">{track.name}</h2>
+          <p className="text-lg text-gray-400">{track.artist}</p>
+        </>
+      ) : (
+        <p className="text-lg">再生履歴が取得できませんでした。</p>
+      )}
     </div>
   );
 }
 
-// ✅ サーバーサイドでデータ取得
 export const getServerSideProps: GetServerSideProps = async (context) => {
-  const userId = context.params?.userid as string;
+  // 例: URL: /u/llpcBgh3vlOoDgNNBMCUbTQ5xkM2_John
+  //    userParam = "llpcBgh3vlOoDgNNBMCUbTQ5xkM2_John"
+  const userParam = context.params?.userid as string;
+  // "_" で分割し、先頭をuidとして扱い、残りをdisplayNameとして結合
+  const [uid, ...nameParts] = userParam.split("_");
+  const displayName = nameParts.join("_") || "Unknown User";
 
+  // まずは Firestore でトークンがあるか確認
   const tokenRef = adminDb
     .collection("users")
-    .doc(userId)
+    .doc(uid)
     .collection("spotifyTokens")
     .doc("token");
 
-  const doc = await tokenRef.get();
+  const docSnap = await tokenRef.get();
 
-  if (!doc.exists) {
-    return { props: { track: null } };
+  if (!docSnap.exists) {
+    // トークンがなければ再生履歴が取得できないので track:null
+    return { props: { track: null, displayName } };
   }
 
-  let { access_token, refresh_token, expires_at } = doc.data() as {
+  let { access_token, refresh_token, expires_at } = docSnap.data() as {
     access_token: string;
     refresh_token: string;
     expires_at: number;
   };
 
-  // 🔁 トークンが期限切れならリフレッシュ
+  // トークンが期限切れの場合はリフレッシュ
   if (Date.now() > expires_at) {
     console.log("♻️ アクセストークンをリフレッシュします");
 
@@ -93,11 +109,11 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
       console.log("✅ トークン更新完了");
     } else {
       console.error("❌ トークン更新失敗:", refreshData);
-      return { props: { track: null } };
+      return { props: { track: null, displayName } };
     }
   }
 
-  // 🎧 再生履歴取得
+  // Spotify API から再生履歴を取得
   const res = await fetch(
     "https://api.spotify.com/v1/me/player/recently-played?limit=1",
     {
@@ -110,7 +126,7 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
   const data = await res.json();
 
   if (!data.items || data.items.length === 0) {
-    return { props: { track: null } };
+    return { props: { track: null, displayName } };
   }
 
   const trackData = data.items[0].track;
@@ -120,5 +136,5 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     image: trackData.album.images[0].url,
   };
 
-  return { props: { track } };
+  return { props: { track, displayName } };
 };
